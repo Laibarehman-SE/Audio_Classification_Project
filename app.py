@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import tensorflow as tf
 import librosa
-import cv2
+from scipy.ndimage import zoom
 
 st.set_page_config(page_title="AcoustiSense AI", page_icon="🎵")
 
@@ -33,10 +33,14 @@ if uploaded_file is not None:
                 mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Force exact shape (128, 280) so total features = 128 * 280 = 35840
-                resized_spec = cv2.resize(mel_spec_db, (280, 128))
+                # Scipy zoom se exact shape (128, 280) mein resize karein
+                target_height, target_width = 128, 280
+                zoom_height = target_height / mel_spec_db.shape[0]
+                zoom_width = target_width / mel_spec_db.shape[1]
                 
-                # Reshape for CNN Input: (1, 128, 280, 1)
+                resized_spec = zoom(mel_spec_db, (zoom_height, zoom_width))
+                
+                # Reshape for CNN Input: (1, 128, 280, 1) -> Total 35840 features
                 X = np.expand_dims(resized_spec, axis=-1)
                 X = np.expand_dims(X, axis=0)
                 
