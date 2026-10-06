@@ -33,14 +33,17 @@ if uploaded_file is not None:
                 mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Exact shape required by Conv2D layers: (128, 174)
+                # Rescale / Normalize Spectrogram values between 0 and 1
+                mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-6)
+                
+                # Resize to (128, 174)
                 target_height, target_width = 128, 174
-                zoom_height = target_height / mel_spec_db.shape[0]
-                zoom_width = target_width / mel_spec_db.shape[1]
+                zoom_height = target_height / mel_spec_norm.shape[0]
+                zoom_width = target_width / mel_spec_norm.shape[1]
                 
-                resized_spec = zoom(mel_spec_db, (zoom_height, zoom_width))
+                resized_spec = zoom(mel_spec_norm, (zoom_height, zoom_width))
                 
-                # Reshape for CNN 4D Tensor Input: (1, 128, 174, 1)
+                # Reshape for CNN Tensor Input: (1, 128, 174, 1)
                 X = np.expand_dims(resized_spec, axis=-1)
                 X = np.expand_dims(X, axis=0)
                 
