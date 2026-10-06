@@ -1,58 +1,139 @@
-import streamlit as st
+import gradio as gr
 import numpy as np
 import tensorflow as tf
 import librosa
 
-st.set_page_config(page_title="AcoustiSense AI", page_icon="🎵")
+# 1. Exact Model & Classes Load
+MODEL_PATH = "audio_classification_cnn.h5"
+CLASSES_PATH = "classes.npy"
 
-st.title("🎵 AcoustiSense AI - Audio Classification")
+model = tf.keras.models.load_model(MODEL_PATH)
+classes = np.load(CLASSES_PATH, allow_pickle=True)
 
-# 1. Load Model and Classes
-@st.cache_resource
-def load_model_and_classes():
-    model = tf.keras.models.load_model("audio_classification_cnn.h5")
-    classes = np.load("classes.npy", allow_pickle=True)
-    return model, classes
+# 2. Prediction Function (Fixed Shape for CNN)
+def predict_audio(audio_path):
+    if audio_path is None:
+        return None
 
-model, classes = load_model_and_classes()
+    # Audio Load & Resample (22.05 kHz)
+    y, sr = librosa.load(audio_path, sr=22050, mono=True)
 
-# 2. Upload File
-uploaded_file = st.file_uploader("Upload an audio file", type=["wav", "mp3", "ogg"])
+    # Silence Trimming
+    y_trimmed, _ = librosa.effects.trim(y, top_db=20)
 
-if uploaded_file is not None:
-    st.audio(uploaded_file)
+    # Mel-Spectrogram Extraction
+    mel_spec = librosa.feature.melspectrogram(y=y_trimmed, sr=sr, n_mels=128)
+    mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+
+    # Padding / Truncating to exact width (174)
+    target_width = 174
+    current_width = mel_spec_db.shape[1]
+
+    if current_width < target_width:
+        pad_width = target_width - current_width
+        mel_spec_db = np.pad(mel_spec_db, pad_width=((0, 0), (0, pad_width)), mode='constant')
+    else:
+        mel_spec_db = mel_spec_db[:, :target_width]
+
+    # Shape matching CNN Model Input: (1, 128, 174, 1)
+    spec_input = np.expand_dims(mel_spec_db, axis=-1)  # Channel axis
+    spec_input = np.expand_dims(spec_input, axis=0)    # Batch axis
+
+    # Prediction
+    preds = model.predict(spec_input)[0]
+
+    # Top 5 Predictions Extraction
+    top_5_idx = np.argsort(preds)[-5:][::-1]
     
-    if st.button("Analyze Sound"):
-        with st.spinner("Analyzing audio..."):
-            try:
-                # Target exact training duration (5 seconds = 280 Mel time steps for shape 35840)
-                sr = 22050
-                duration = 5.0
-                target_length = int(sr * duration)
-                
-                y, _ = librosa.load(uploaded_file, duration=duration, sr=sr)
-                
-                # Pad if less than 5 seconds
-                if len(y) < target_length:
-                    y = np.pad(y, (0, target_length - len(y)))
-                else:
-                    y = y[:target_length]
-                
-                # Mel-Spectrogram extraction
-                mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
-                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-                
-                # Reshape tensor to match CNN training format: (1, 128, 280, 1)
-                X = mel_spec_db[..., np.newaxis]
-                X = np.expand_dims(X, axis=0)
-                
-                # Prediction
-                predictions = model.predict(X)[0]
-                top_idx = np.argsort(predictions)[::-1][:5]
-                
-                st.subheader("Prediction Results:")
-                for idx in top_idx:
-                    st.write(f"**{classes[idx]}**: {predictions[idx]*100:.2f}%")
+    results = {str(classes[i]).replace('_', ' ').title(): float(preds[i]) for i in top_5_idx}
+    return results
+
+# 3. UI Styling & Layout
+custom_css = """
+body, .gradio-container {
+    background-color: #12181f !important;
+    color: #e2e8f0 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.main-header {
+    text-align: center;
+    margin-bottom: 24px;
+    padding-top: 10px;
+}
+
+.main-header .title-wrapper {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 2.2rem;
+    font-weight: 700;
+}
+
+.main-header .brand-text { color: #ffffff !important; }
+.main-header .ai-tag { color: #64748b !important; font-weight: 500; }
+.main-header p { color: #94a3b8 !important; font-size: 0.95rem; margin-top: 4px; }
+
+.card-panel {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 12px !important;
+    padding: 20px !important;
+    background: #1a202c !important;
+}
+
+.card-title {
+    color: #ffffff !important;
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.stat-item .bar { background-color: #10b981 !important; }
+button.primary { background-color: #10b981 !important; border: none !important; }
+"""
+
+custom_theme = gr.themes.Soft(primary_hue="emerald", neutral_hue="slate")
+
+with gr.Blocks(theme=custom_theme, css=custom_css) as interface:
+    gr.Markdown(
+        """
+        <div class="main-header">
+            <div class="title-wrapper">
+                <span>🎙️</span>
+                <span class="brand-text">AcoustiSense</span>
+                <span class="ai-tag">AI</span>
+            </div>
+            <p>Environmental Sound Classification System</p>
+        </div>
+        """
+    )
+    
+    with gr.Row():
+        with gr.Column(elem_classes=["card-panel"]):
+            gr.Markdown("<div class='card-title'>Input & Visualization</div>")
+            file_input = gr.File(label="DROP AUDIO FILE OR CLICK TO UPLOAD", file_count="single", type="filepath")
+            submit_btn = gr.Button("Analyze Sound", variant="primary")
+            audio_display = gr.Audio(
+                label="Audio Visualization", 
+                interactive=False,
+                waveform_options={"waveform_color": "#10b981", "waveform_progress_color": "#059669"}
+            )
             
-            except Exception as e:
-                st.error(f"Error processing audio: {str(e)}")
+        with gr.Column(elem_classes=["card-panel"]):
+            gr.Markdown("<div class='card-title'>Prediction Dashboard</div>")
+            gr.Markdown("Top 5 Classes:")
+            label_output = gr.Label(num_top_classes=5, label="")
+
+    file_input.change(fn=lambda x: x, inputs=file_input, outputs=audio_display)
+    submit_btn.click(fn=predict_audio, inputs=file_input, outputs=label_output)
+
+import streamlit as st
+import streamlit.components.v1 as components
+
+# Interface launch
+interface.launch(prevent_thread_lock=True, server_name="0.0.0.0", server_port=7860)
+
+# Streamlit Page Display
+st.set_page_config(page_title="AcoustiSense AI", layout="wide")
+components.iframe("http://localhost:7860", height=800, scrolling=True)
