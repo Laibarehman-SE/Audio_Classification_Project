@@ -2,7 +2,6 @@ import streamlit as st
 import numpy as np
 import tensorflow as tf
 import librosa
-from scipy.ndimage import zoom
 
 st.set_page_config(page_title="AcoustiSense AI", page_icon="🎵")
 
@@ -26,38 +25,23 @@ if uploaded_file is not None:
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
             try:
-                # Target audio duration: Exact 5 Seconds at 22050 Hz
-                target_sr = 22050
-                target_len = target_sr * 5
+                # Load audio
+                y, sr = librosa.load(uploaded_file, sr=22050)
                 
-                y, sr = librosa.load(uploaded_file, sr=target_sr)
-                
-                # Pad or truncate audio signal to exact 5 seconds
-                if len(y) < target_len:
-                    y = np.pad(y, (0, target_len - len(y)))
-                else:
-                    y = y[:target_len]
+                # Fix audio signal length so spectrogram ALWAYS generates 35840 values
+                # 128 mel bins * 280 time frames = 35840 features
+                target_samples = 280 * 512  # hop_length is 512 by default
+                y_fixed = librosa.util.fix_length(y, size=target_samples)
                 
                 # Extract Mel Spectrogram
-                mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
+                mel_spec = librosa.feature.melspectrogram(y=y_fixed, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Try passing 2D Spectrogram directly or dynamically reshaped vector
-                try:
-                    # Target shape 1: Exact target frame size (128, 170) -> Conv layers shrink to 35840
-                    target_height, target_width = 128, 170
-                    zoom_h = target_height / mel_spec_db.shape[0]
-                    zoom_w = target_width / mel_spec_db.shape[1]
-                    spec_resized = zoom(mel_spec_db, (zoom_h, zoom_w))
-                    
-                    X = np.expand_dims(spec_resized, axis=-1)
-                    X = np.expand_dims(X, axis=0)
-                    predictions = model.predict(X)[0]
-                except Exception:
-                    # Target shape 2: Flattened direct feature vector
-                    X_flat = mel_spec_db.flatten()[:35840].reshape(1, 35840)
-                    predictions = model.predict(X_flat)[0]
+                # Reshape to exact 1D vector required by model: (1, 35840)
+                X = mel_spec_db.flatten().reshape(1, 35840)
                 
+                # Model Prediction
+                predictions = model.predict(X)[0]
                 top_idx = np.argsort(predictions)[::-1][:5]
                 
                 st.subheader("Prediction Results:")
