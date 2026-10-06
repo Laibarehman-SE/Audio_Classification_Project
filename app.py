@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import tensorflow as tf
 import librosa
+from scipy.ndimage import zoom
 
 st.set_page_config(page_title="AcoustiSense AI", page_icon="🎵")
 
@@ -25,32 +26,26 @@ if uploaded_file is not None:
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
             try:
-                # Load Audio at 22050 Hz
+                # Load Audio Signal
                 y, sr = librosa.load(uploaded_file, sr=22050)
                 
-                # Force audio sample count to exactly match 280 Mel spectrogram frames
-                # (280 frames * 512 hop_length = 143,360 samples)
-                target_samples = 280 * 512
-                y_fixed = librosa.util.fix_length(y, size=target_samples)
-                
-                # Generate Mel Spectrogram (128 Mel Bins x 280 Frames = 35,840 Total Elements)
-                mel_spec = librosa.feature.melspectrogram(y=y_fixed, sr=sr, n_mels=128, hop_length=512)
+                # Extract Mel Spectrogram
+                mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Make sure shape is exactly (128, 280)
-                mel_spec_db = mel_spec_db[:, :280]
+                # Exact shape required by Conv2D layers: (128, 174)
+                target_height, target_width = 128, 174
+                zoom_height = target_height / mel_spec_db.shape[0]
+                zoom_width = target_width / mel_spec_db.shape[1]
                 
-                # Attempt 1: Flattened 1D Input Shape (1, 35840)
-                try:
-                    X = mel_spec_db.flatten().reshape(1, 35840)
-                    predictions = model.predict(X)[0]
-                except Exception:
-                    # Attempt 2: 4D Conv Input Shape (1, 128, 280, 1)
-                    X = np.expand_dims(mel_spec_db, axis=-1)
-                    X = np.expand_dims(X, axis=0)
-                    predictions = model.predict(X)[0]
+                resized_spec = zoom(mel_spec_db, (zoom_height, zoom_width))
                 
-                # Output Top 5 Predictions
+                # Reshape for CNN 4D Tensor Input: (1, 128, 174, 1)
+                X = np.expand_dims(resized_spec, axis=-1)
+                X = np.expand_dims(X, axis=0)
+                
+                # Model Prediction
+                predictions = model.predict(X)[0]
                 top_idx = np.argsort(predictions)[::-1][:5]
                 
                 st.subheader("Prediction Results:")
