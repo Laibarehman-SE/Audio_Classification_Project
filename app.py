@@ -26,33 +26,34 @@ if uploaded_file is not None:
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
             try:
-                # Load Audio Signal
+                # Load Audio (22050 Hz)
                 y, sr = librosa.load(uploaded_file, sr=22050)
                 
                 # Extract Mel Spectrogram
                 mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Rescale / Normalize Spectrogram values between 0 and 1
-                mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-6)
+                # Standard Normalization (Mean 0, Std 1)
+                mel_spec_norm = (mel_spec_db - np.mean(mel_spec_db)) / (np.std(mel_spec_db) + 1e-6)
                 
-                # Resize to (128, 174)
+                # Target exact input dimensions: (128, 174)
                 target_height, target_width = 128, 174
                 zoom_height = target_height / mel_spec_norm.shape[0]
                 zoom_width = target_width / mel_spec_norm.shape[1]
                 
                 resized_spec = zoom(mel_spec_norm, (zoom_height, zoom_width))
                 
-                # Reshape for CNN Tensor Input: (1, 128, 174, 1)
+                # Reshape to 4D Tensor: (1, 128, 174, 1)
                 X = np.expand_dims(resized_spec, axis=-1)
                 X = np.expand_dims(X, axis=0)
                 
-                # Model Prediction
+                # Predict
                 predictions = model.predict(X)[0]
                 top_idx = np.argsort(predictions)[::-1][:5]
                 
                 st.subheader("Prediction Results:")
                 for idx in top_idx:
+                    # Confidence percentage formatting
                     st.write(f"**{classes[idx]}**: {predictions[idx]*100:.2f}%")
             
             except Exception as e:
