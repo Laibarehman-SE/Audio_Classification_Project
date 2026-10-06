@@ -128,5 +128,12 @@ with gr.Blocks(theme=custom_theme, css=custom_css) as interface:
     file_input.change(fn=lambda x: x, inputs=file_input, outputs=audio_display)
     submit_btn.click(fn=predict_audio, inputs=file_input, outputs=label_output)
 
-if __name__ == "__main__":
-    interface.launch()
+import streamlit as st
+import streamlit.components.v1 as components
+
+# Interface launch
+interface.launch(prevent_thread_lock=True, server_name="0.0.0.0", server_port=7860)
+
+# Streamlit Page Display
+st.set_page_config(page_title="AcoustiSense AI", layout="wide")
+components.iframe("http://localhost:7860", height=800, scrolling=True)
