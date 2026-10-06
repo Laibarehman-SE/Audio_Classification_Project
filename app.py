@@ -25,11 +25,14 @@ if uploaded_file is not None:
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
             try:
-                # Process audio signal
-                y, sr = librosa.load(uploaded_file, duration=3.0, sr=22050)
+                # Target exact training duration (5 seconds = 280 Mel time steps for shape 35840)
+                sr = 22050
+                duration = 5.0
+                target_length = int(sr * duration)
                 
-                # Fixed audio length padding/cropping (3 seconds = 66150 samples)
-                target_length = 22050 * 3
+                y, _ = librosa.load(uploaded_file, duration=duration, sr=sr)
+                
+                # Pad if less than 5 seconds
                 if len(y) < target_length:
                     y = np.pad(y, (0, target_length - len(y)))
                 else:
@@ -39,16 +42,9 @@ if uploaded_file is not None:
                 mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Check expected input shape of model
-                input_shape = model.input_shape
-                
-                # Reshape tensor
-                if len(input_shape) == 4:
-                    # Model expects (batch, height, width, channels)
-                    X = np.expand_dims(mel_spec_db, axis=-1)
-                    X = np.expand_dims(X, axis=0)
-                else:
-                    X = np.expand_dims(mel_spec_db, axis=0)
+                # Reshape tensor to match CNN training format: (1, 128, 280, 1)
+                X = mel_spec_db[..., np.newaxis]
+                X = np.expand_dims(X, axis=0)
                 
                 # Prediction
                 predictions = model.predict(X)[0]
