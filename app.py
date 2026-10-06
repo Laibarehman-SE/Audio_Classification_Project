@@ -24,19 +24,39 @@ if uploaded_file is not None:
     
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
-            # Process audio
-            y, sr = librosa.load(uploaded_file, duration=3.0, sr=22050)
-            mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
-            mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+            try:
+                # Process audio signal
+                y, sr = librosa.load(uploaded_file, duration=3.0, sr=22050)
+                
+                # Fixed audio length padding/cropping (3 seconds = 66150 samples)
+                target_length = 22050 * 3
+                if len(y) < target_length:
+                    y = np.pad(y, (0, target_length - len(y)))
+                else:
+                    y = y[:target_length]
+                
+                # Mel-Spectrogram extraction
+                mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
+                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+                
+                # Check expected input shape of model
+                input_shape = model.input_shape
+                
+                # Reshape tensor
+                if len(input_shape) == 4:
+                    # Model expects (batch, height, width, channels)
+                    X = np.expand_dims(mel_spec_db, axis=-1)
+                    X = np.expand_dims(X, axis=0)
+                else:
+                    X = np.expand_dims(mel_spec_db, axis=0)
+                
+                # Prediction
+                predictions = model.predict(X)[0]
+                top_idx = np.argsort(predictions)[::-1][:5]
+                
+                st.subheader("Prediction Results:")
+                for idx in top_idx:
+                    st.write(f"**{classes[idx]}**: {predictions[idx]*100:.2f}%")
             
-            # Reshape for CNN model
-            X = mel_spec_db[..., np.newaxis]
-            X = np.expand_dims(X, axis=0)
-            
-            # Predict
-            predictions = model.predict(X)[0]
-            top_idx = np.argsort(predictions)[::-1][:5]
-            
-            st.subheader("Prediction Results:")
-            for idx in top_idx:
-                st.write(f"**{classes[idx]}**: {predictions[idx]*100:.2f}%")
+            except Exception as e:
+                st.error(f"Error processing audio: {str(e)}")
