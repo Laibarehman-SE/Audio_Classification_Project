@@ -26,32 +26,26 @@ if uploaded_file is not None:
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
             try:
-                # Load Audio
+                # Load Audio (22050 Hz)
                 y, sr = librosa.load(uploaded_file, sr=22050)
                 
-                # Extract Mel Spectrogram (128 Mel Bins)
+                # Extract Mel Spectrogram
                 mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Resize to (128, 280) matrix
-                target_height, target_width = 128, 280
+                # Resize to (128, 170) -> 128 Mel Bins, 170 Time Frames
+                target_height, target_width = 128, 170
                 zoom_height = target_height / mel_spec_db.shape[0]
                 zoom_width = target_width / mel_spec_db.shape[1]
                 
                 resized_spec = zoom(mel_spec_db, (zoom_height, zoom_width))
                 
-                # Flatten directly to 1D vector of shape (1, 35840) to match dense layer expectation
-                X_flat = resized_spec.flatten().reshape(1, 35840)
+                # Reshape to 4D Tensor for CNN: (1, 128, 170, 1)
+                X = np.expand_dims(resized_spec, axis=-1)
+                X = np.expand_dims(X, axis=0)
                 
-                # Try prediction as 1D array
-                try:
-                    predictions = model.predict(X_flat)[0]
-                except Exception:
-                    # Fallback to 4D tensor (1, 128, 280, 1) if model is 2D
-                    X_4d = np.expand_dims(resized_spec, axis=-1)
-                    X_4d = np.expand_dims(X_4d, axis=0)
-                    predictions = model.predict(X_4d)[0]
-                
+                # Predict
+                predictions = model.predict(X)[0]
                 top_idx = np.argsort(predictions)[::-1][:5]
                 
                 st.subheader("Prediction Results:")
