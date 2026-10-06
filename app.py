@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import tensorflow as tf
 import librosa
+import cv2
 
 st.set_page_config(page_title="AcoustiSense AI", page_icon="🎵")
 
@@ -25,33 +26,21 @@ if uploaded_file is not None:
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
             try:
-                sr = 22050
+                # Load Audio
+                y, sr = librosa.load(uploaded_file, sr=22050)
                 
-                # Audio load & fix length
-                y, _ = librosa.load(uploaded_file, duration=5.0, sr=sr)
-                
-                # Calculate target audio samples to get exact 280 time frames
-                # hop_length=394 guarantees 280 spectrogram columns -> 128 * 280 = 35840 features
-                hop_length = 394
-                n_fft = 2048
-                target_samples = hop_length * 279
-                
-                if len(y) < target_samples:
-                    y = np.pad(y, (0, target_samples - len(y)))
-                else:
-                    y = y[:target_samples]
-                
-                # Extract Mel Spectrogram
-                mel_spec = librosa.feature.melspectrogram(
-                    y=y, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=128
-                )
+                # Mel Spectrogram (128 Mel Bins)
+                mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Ensure input shape matches (1, 128, 280, 1)
-                X = mel_spec_db[..., np.newaxis]
+                # Force exact shape (128, 280) so total features = 128 * 280 = 35840
+                resized_spec = cv2.resize(mel_spec_db, (280, 128))
+                
+                # Reshape for CNN Input: (1, 128, 280, 1)
+                X = np.expand_dims(resized_spec, axis=-1)
                 X = np.expand_dims(X, axis=0)
                 
-                # Predict
+                # Model Prediction
                 predictions = model.predict(X)[0]
                 top_idx = np.argsort(predictions)[::-1][:5]
                 
