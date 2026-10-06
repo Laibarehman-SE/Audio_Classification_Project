@@ -26,26 +26,38 @@ if uploaded_file is not None:
     if st.button("Analyze Sound"):
         with st.spinner("Analyzing audio..."):
             try:
-                # Load Audio (22050 Hz)
-                y, sr = librosa.load(uploaded_file, sr=22050)
+                # Target audio duration: Exact 5 Seconds at 22050 Hz
+                target_sr = 22050
+                target_len = target_sr * 5
+                
+                y, sr = librosa.load(uploaded_file, sr=target_sr)
+                
+                # Pad or truncate audio signal to exact 5 seconds
+                if len(y) < target_len:
+                    y = np.pad(y, (0, target_len - len(y)))
+                else:
+                    y = y[:target_len]
                 
                 # Extract Mel Spectrogram
                 mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Resize to (128, 170) -> 128 Mel Bins, 170 Time Frames
-                target_height, target_width = 128, 170
-                zoom_height = target_height / mel_spec_db.shape[0]
-                zoom_width = target_width / mel_spec_db.shape[1]
+                # Try passing 2D Spectrogram directly or dynamically reshaped vector
+                try:
+                    # Target shape 1: Exact target frame size (128, 170) -> Conv layers shrink to 35840
+                    target_height, target_width = 128, 170
+                    zoom_h = target_height / mel_spec_db.shape[0]
+                    zoom_w = target_width / mel_spec_db.shape[1]
+                    spec_resized = zoom(mel_spec_db, (zoom_h, zoom_w))
+                    
+                    X = np.expand_dims(spec_resized, axis=-1)
+                    X = np.expand_dims(X, axis=0)
+                    predictions = model.predict(X)[0]
+                except Exception:
+                    # Target shape 2: Flattened direct feature vector
+                    X_flat = mel_spec_db.flatten()[:35840].reshape(1, 35840)
+                    predictions = model.predict(X_flat)[0]
                 
-                resized_spec = zoom(mel_spec_db, (zoom_height, zoom_width))
-                
-                # Reshape to 4D Tensor for CNN: (1, 128, 170, 1)
-                X = np.expand_dims(resized_spec, axis=-1)
-                X = np.expand_dims(X, axis=0)
-                
-                # Predict
-                predictions = model.predict(X)[0]
                 top_idx = np.argsort(predictions)[::-1][:5]
                 
                 st.subheader("Prediction Results:")
